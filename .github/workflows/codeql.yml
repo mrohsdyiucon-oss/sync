@@ -81,7 +81,7 @@ jobs:
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: "🔒 Security Scan Report — ${{ github.repository }} — Run #${{ github.run_number }}"
-          to: mahmoud.kinawy@iucon.com.eg
+          to: mohamed.roshdy@iucon.com.eg
           from: DevSecOps Bot <${{ secrets.MAIL_USERNAME }}>
           body: |
             CodeQL security scan completed for ${{ github.repository }}.
