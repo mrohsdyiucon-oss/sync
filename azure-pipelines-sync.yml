@@ -21,6 +21,6 @@ steps:
       sourceGitRepositoryUri: '$(Build.Repository.Uri)'
       sourceGitRepositoryPersonalAccessToken: '$(System.AccessToken)'
       sourceVerifySSLCertificate: false
-      destinationGitRepositoryUri: 'https://github.com/lina-love/sync-dummy.git'
+      destinationGitRepositoryUri: 'https://github.com/mrohsdyiucon-oss/sync'
       destinationGitRepositoryPersonalAccessToken: '$(GITHUB_PAT)'
       destinationVerifySSLCertificate: true
