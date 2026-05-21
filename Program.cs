@@ -1,3 +1,4 @@
+
 using Newtonsoft.Json;
 using RestSharp;
 using System.Data.SqlClient;
@@ -5,40 +6,37 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml;
+using System.Xml.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
-
 var app = builder.Build();
 
-string hardcodedJwtSecret = "THIS_IS_A_SUPER_SECRET_KEY_123456";
+// =====================
+// HARD CODED SECRETS
+// =====================
+string hardcodedJwtSecret = "THIS_IS_SUPER_SECRET_KEY_123456";
 string hardcodedPassword = "AdminPassword123!";
+string awsKey = "AKIAFAKEKEY123456";
 string connectionString =
     "Server=localhost;Database=ProdDb;User Id=sa;Password=SuperPassword123;TrustServerCertificate=true";
 
-// Health endpoint
-app.MapGet("/", () =>
-{
-    return Results.Ok("Vulnerable API Running");
-});
+// =====================
+// HEALTH
+// =====================
+app.MapGet("/", () => "Vulnerable API Running");
+app.MapGet("/health", () => "OK");
 
-// Good one
-app.MapGet("/health", () =>
-{
-    return Results.Ok("Healthy2 ");
-}); 
-
-// SQL Injection
+// =====================
+// SQL INJECTION (1)
+// =====================
 app.MapGet("/users", async (string username) =>
 {
     using var connection = new SqlConnection(connectionString);
-
     await connection.OpenAsync();
 
-    string sql =
-        $"SELECT * FROM Users WHERE Username = '{username}'";
+    string sql = $"SELECT * FROM Users WHERE Username = '{username}'";
 
     using var command = new SqlCommand(sql, connection);
-
     using var reader = await command.ExecuteReaderAsync();
 
     var results = new List<object>();
@@ -55,80 +53,88 @@ app.MapGet("/users", async (string username) =>
     return Results.Ok(results);
 });
 
+// =====================
+// SQL INJECTION (2)
+// =====================
+app.MapGet("/search", (string q) =>
+{
+    string sql = "SELECT * FROM Products WHERE Name LIKE '%" + q + "%'";
+    return Results.Ok(sql);
+});
 
-// Command Injection
+// =====================
+// COMMAND INJECTION
+// =====================
 app.MapGet("/ping", (string host) =>
 {
     var process = new Process();
-
     process.StartInfo.FileName = "cmd.exe";
     process.StartInfo.Arguments = $"/c ping {host}";
     process.StartInfo.RedirectStandardOutput = true;
     process.Start();
 
-    string output = process.StandardOutput.ReadToEnd();
-
-    return Results.Text(output);
+    return Results.Text(process.StandardOutput.ReadToEnd());
 });
 
-
-// SSRF
+// =====================
+// SSRF (1)
+// =====================
 app.MapGet("/fetch", async (string url) =>
 {
     var client = new RestClient(url);
-
-    var request = new RestRequest();
-
-    var response = await client.ExecuteAsync(request);
-
+    var response = await client.ExecuteAsync(new RestRequest());
     return Results.Text(response.Content ?? "");
 });
 
+// =====================
+// SSRF (2)
+// =====================
+app.MapGet("/cloud", async (string url) =>
+{
+    var client = new HttpClient();
+    return await client.GetStringAsync(url);
+});
 
-// Path Traversal
+// =====================
+// PATH TRAVERSAL
+// =====================
 app.MapGet("/file", (string path) =>
 {
     var content = File.ReadAllText(path);
-
     return Results.Text(content);
 });
 
-
-// Weak Crypto
+// =====================
+// WEAK CRYPTO
+// =====================
 app.MapGet("/md5", (string value) =>
 {
     using var md5 = MD5.Create();
-
     var bytes = Encoding.UTF8.GetBytes(value);
-
-    var hash = md5.ComputeHash(bytes);
-
-    return Convert.ToHexString(hash);
+    return Convert.ToHexString(md5.ComputeHash(bytes));
 });
 
-
+// =====================
 // XXE
+// =====================
 app.MapPost("/xml", async (HttpRequest request) =>
 {
     using var reader = new StreamReader(request.Body);
-
     string xml = await reader.ReadToEndAsync();
 
     XmlDocument doc = new XmlDocument();
-
-    doc.XmlResolver = new XmlUrlResolver();
-
+    doc.XmlResolver = new XmlUrlResolver(); // dangerous
     doc.LoadXml(xml);
 
     return Results.Ok(doc.InnerText);
 });
 
-
-// Insecure Deserialization
+// =====================
+// DESERIALIZATION (Newtonsoft)
+// =====================
 app.MapPost("/deserialize", async (HttpRequest request) =>
 {
     using var reader = new StreamReader(request.Body);
-
     string body = await reader.ReadToEndAsync();
 
     var obj = JsonConvert.DeserializeObject<object>(
@@ -141,71 +147,89 @@ app.MapPost("/deserialize", async (HttpRequest request) =>
     return Results.Ok(obj);
 });
 
+// =====================
+// XML DESERIALIZATION (XmlSerializer unsafe usage pattern)
+// =====================
+app.MapPost("/xml2", (string xml) =>
+{
+    XmlSerializer serializer = new XmlSerializer(typeof(object));
+    using var reader = new StringReader(xml);
+    return serializer.Deserialize(reader);
+});
 
-// Open Redirect
+// =====================
+// OPEN REDIRECT
+// =====================
 app.MapGet("/redirect", (string url) =>
 {
     return Results.Redirect(url);
 });
 
-
-// Sensitive Data Exposure
+// =====================
+// INFORMATION DISCLOSURE
+// =====================
 app.MapGet("/debug", () =>
 {
     return Results.Ok(new
     {
         Password = hardcodedPassword,
         JwtSecret = hardcodedJwtSecret,
+        AwsKey = awsKey,
         ConnectionString = connectionString,
         MachineName = Environment.MachineName,
         User = Environment.UserName,
-        CurrentDirectory = Environment.CurrentDirectory
+        Dir = Environment.CurrentDirectory
     });
 });
 
-
-// Hardcoded Credentials
-app.MapGet("/login", (string username, string password) =>
+// =====================
+// AUTH BYPASS
+// =====================
+app.MapGet("/admin", (string role) =>
 {
-    if (username == "admin" &&
-        password == "Password123")
-    {
-        return Results.Ok("Logged in");
-    }
+    if (role != "admin")
+        return Results.Unauthorized();
 
-    return Results.Unauthorized();
+    return Results.Ok("Admin Panel");
 });
 
+// =====================
+// LOGIC BUG
+// =====================
+app.MapGet("/discount", (int price) =>
+{
+    if (price > 0)
+        return Results.Ok(price * -1);
 
-// Dangerous Reflection
+    return Results.Ok(price);
+});
+
+// =====================
+// REFLECTION ABUSE
+// =====================
 app.MapGet("/type", (string type) =>
 {
-    var loadedType = Type.GetType(type);
-
-    return Results.Ok(loadedType?.FullName);
+    var t = Type.GetType(type);
+    return Results.Ok(t?.FullName);
 });
 
-
-// Dangerous File Upload
+// =====================
+// FILE UPLOAD (unsafe)
+// =====================
 app.MapPost("/upload", async (HttpRequest request) =>
 {
-    var form = await request.ReadFormAsync();
+    var file = request.Form.Files[0];
+    var path = Path.Combine("uploads", file.FileName);
 
-    var file = form.Files[0];
-
-    var uploadPath =
-        Path.Combine("uploads", file.FileName);
-
-    using var stream =
-        File.Create(uploadPath);
-
+    using var stream = File.Create(path);
     await file.CopyToAsync(stream);
 
-    return Results.Ok(uploadPath);
+    return Results.Ok(path);
 });
 
-
-// Information Disclosure
+// =====================
+// ENV DISCLOSURE
+// =====================
 app.MapGet("/env", () =>
 {
     return Results.Ok(Environment.GetEnvironmentVariables());
