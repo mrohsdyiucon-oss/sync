@@ -1,0 +1,26 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: '0 */6 * * *'
+    displayName: Scheduled sync
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  name: Net7_Pool
+
+steps:
+  - task: swellaby.mirror-git-repository.mirror-git-repository-vsts-task.mirror-git-repository-vsts-task@1
+    displayName: Mirror main to GitHub
+    inputs:
+      sourceGitRepositoryUri: '$(Build.Repository.Uri)'
+      sourceGitRepositoryPersonalAccessToken: '$(System.AccessToken)'
+      sourceVerifySSLCertificate: false
+      destinationGitRepositoryUri: 'https://github.com/lina-love/sync-dummy.git'
+      destinationGitRepositoryPersonalAccessToken: '$(GITHUB_PAT)'
+      destinationVerifySSLCertificate: true
